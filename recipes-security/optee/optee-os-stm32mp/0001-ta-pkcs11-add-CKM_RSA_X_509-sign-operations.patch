@@ -1,0 +1,285 @@
+From 90a47fd41af7ae909d8dabad8569f95a160412f6 Mon Sep 17 00:00:00 2001
+From: Alexandre Marechal <alexandre.marechal@st.com>
+Date: Wed, 24 Jul 2024 10:40:52 +0200
+Subject: [PATCH] ta: pkcs11: add CKM_RSA_X_509 sign operations
+
+Add support for CKM_RSA_X_509 mechanism for signing. This operation
+is required for support of TLS v1.2 in the Linux based OS through
+OpenSSL and a PKCS#11 interface.
+
+Sign and verify operations are processed using TEE decrypt/encrypt
+operation since GP TEE Internal Core API specification only allows
+these modes for TEE_ALG_RSA_NOPAD algorithm. The pkcs11 TA only support
+sign operation when the provided payload is exactly of the same size
+as the RSA key used and ensures the size of the generated signature
+matches the key modulus.
+
+Change-Id: I4dc504a8462ab78ba3707c03ab8fac8990f52be9
+Signed-off-by: Alexandre Marechal <alexandre.marechal@st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ ta/pkcs11/include/pkcs11_ta.h      |  1 +
+ ta/pkcs11/src/pkcs11_attributes.c  |  1 +
+ ta/pkcs11/src/pkcs11_helpers.c     |  1 +
+ ta/pkcs11/src/processing.h         |  2 +
+ ta/pkcs11/src/processing_asymm.c   | 85 +++++++++++++++++++++++++++++-
+ ta/pkcs11/src/processing_rsa.c     | 19 +++++++
+ ta/pkcs11/src/token_capabilities.c |  5 ++
+ 7 files changed, 113 insertions(+), 1 deletion(-)
+
+diff --git a/ta/pkcs11/include/pkcs11_ta.h b/ta/pkcs11/include/pkcs11_ta.h
+index 1372f0d42f..f9d849351e 100644
+--- a/ta/pkcs11/include/pkcs11_ta.h
++++ b/ta/pkcs11/include/pkcs11_ta.h
+@@ -1212,6 +1212,7 @@ enum pkcs11_certificate_category {
+ enum pkcs11_mechanism_id {
+ 	PKCS11_CKM_RSA_PKCS_KEY_PAIR_GEN	= 0x00000,
+ 	PKCS11_CKM_RSA_PKCS			= 0x00001,
++	PKCS11_CKM_RSA_X_509			= 0x00003,
+ 	PKCS11_CKM_MD5_RSA_PKCS			= 0x00005,
+ 	PKCS11_CKM_SHA1_RSA_PKCS		= 0x00006,
+ 	PKCS11_CKM_RSA_PKCS_OAEP		= 0x00009,
+diff --git a/ta/pkcs11/src/pkcs11_attributes.c b/ta/pkcs11/src/pkcs11_attributes.c
+index a6b451f23b..9c9dd1d2ce 100644
+--- a/ta/pkcs11/src/pkcs11_attributes.c
++++ b/ta/pkcs11/src/pkcs11_attributes.c
+@@ -1824,6 +1824,7 @@ check_parent_attrs_against_processing(enum pkcs11_mechanism_id proc_id,
+ 	case PKCS11_CKM_SHA512_RSA_PKCS:
+ 	case PKCS11_CKM_RSA_PKCS_OAEP:
+ 	case PKCS11_CKM_RSA_PKCS_PSS:
++	case PKCS11_CKM_RSA_X_509:
+ 	case PKCS11_CKM_SHA1_RSA_PKCS_PSS:
+ 	case PKCS11_CKM_SHA224_RSA_PKCS_PSS:
+ 	case PKCS11_CKM_SHA256_RSA_PKCS_PSS:
+diff --git a/ta/pkcs11/src/pkcs11_helpers.c b/ta/pkcs11/src/pkcs11_helpers.c
+index f3653fe31c..0d4a7d8d46 100644
+--- a/ta/pkcs11/src/pkcs11_helpers.c
++++ b/ta/pkcs11/src/pkcs11_helpers.c
+@@ -255,6 +255,7 @@ static const struct any_id __maybe_unused string_rc[] = {
+ 	PKCS11_ID(PKCS11_CKR_ATTRIBUTE_TYPE_INVALID),
+ 	PKCS11_ID(PKCS11_CKR_ATTRIBUTE_VALUE_INVALID),
+ 	PKCS11_ID(PKCS11_CKR_ACTION_PROHIBITED),
++	PKCS11_ID(PKCS11_CKR_DATA_INVALID),
+ 	PKCS11_ID(PKCS11_CKR_DATA_LEN_RANGE),
+ 	PKCS11_ID(PKCS11_CKR_DEVICE_MEMORY),
+ 	PKCS11_ID(PKCS11_CKR_ENCRYPTED_DATA_INVALID),
+diff --git a/ta/pkcs11/src/processing.h b/ta/pkcs11/src/processing.h
+index 59065535be..b91f8a61b6 100644
+--- a/ta/pkcs11/src/processing.h
++++ b/ta/pkcs11/src/processing.h
+@@ -232,4 +232,6 @@ enum pkcs11_rc pkcs2tee_algo_ecdh(uint32_t *tee_id,
+ 				  struct pkcs11_attribute_head *proc_params,
+ 				  struct pkcs11_object *obj);
+ 
++enum pkcs11_rc pkcs2tee_rsa_nopad_context(struct active_processing *proc);
++
+ #endif /*PKCS11_TA_PROCESSING_H*/
+diff --git a/ta/pkcs11/src/processing_asymm.c b/ta/pkcs11/src/processing_asymm.c
+index d4bb6ff846..c3ca1053ea 100644
+--- a/ta/pkcs11/src/processing_asymm.c
++++ b/ta/pkcs11/src/processing_asymm.c
+@@ -5,6 +5,7 @@
+ 
+ #include <assert.h>
+ #include <compiler.h>
++#include <string_ext.h>
+ #include <tee_api_defines.h>
+ #include <tee_internal_api.h>
+ #include <tee_internal_api_extensions.h>
+@@ -20,6 +21,7 @@ bool processing_is_tee_asymm(uint32_t proc_id)
+ 	switch (proc_id) {
+ 	/* RSA flavors */
+ 	case PKCS11_CKM_RSA_PKCS:
++	case PKCS11_CKM_RSA_X_509:
+ 	case PKCS11_CKM_RSA_PKCS_OAEP:
+ 	case PKCS11_CKM_RSA_PKCS_PSS:
+ 	case PKCS11_CKM_MD5_RSA_PKCS:
+@@ -63,6 +65,7 @@ pkcs2tee_algorithm(uint32_t *tee_id, uint32_t *tee_hash_id,
+ 		{ PKCS11_CKM_RSA_PKCS, TEE_ALG_RSAES_PKCS1_V1_5, 0 },
+ 		{ PKCS11_CKM_RSA_PKCS_OAEP, 1, 0 },
+ 		{ PKCS11_CKM_RSA_PKCS_PSS, 1, 0 },
++		{ PKCS11_CKM_RSA_X_509, TEE_ALG_RSA_NOPAD, 0 },
+ 		{ PKCS11_CKM_MD5_RSA_PKCS, TEE_ALG_RSASSA_PKCS1_V1_5_MD5,
+ 		  TEE_ALG_MD5 },
+ 		{ PKCS11_CKM_SHA1_RSA_PKCS, TEE_ALG_RSASSA_PKCS1_V1_5_SHA1,
+@@ -220,7 +223,28 @@ allocate_tee_operation(struct pkcs11_session *session,
+ 	if (pkcs2tee_algorithm(&algo, &hash_algo, function, params, obj))
+ 		return PKCS11_CKR_FUNCTION_FAILED;
+ 
+-	pkcs2tee_mode(&mode, function);
++	/*
++	 * PKCS#11 allows Sign/Verify with CKM_RSA_X_509 while GP TEE API
++	 * only permits Encrypt/Decrypt with TEE_ALG_RSA_NOPAD.
++	 * For other algorithm, use simple 1-to-1 ID conversion pkcs2tee_mode().
++	 */
++	if (params->id == PKCS11_CKM_RSA_X_509) {
++		assert(!hash_algo);
++		switch (function) {
++		case PKCS11_FUNCTION_ENCRYPT:
++		case PKCS11_FUNCTION_VERIFY:
++			mode = TEE_MODE_ENCRYPT;
++			break;
++		case PKCS11_FUNCTION_DECRYPT:
++		case PKCS11_FUNCTION_SIGN:
++			mode = TEE_MODE_DECRYPT;
++			break;
++		default:
++			TEE_Panic(0);
++		}
++	} else {
++		pkcs2tee_mode(&mode, function);
++	}
+ 
+ 	if (hash_algo) {
+ 		pkcs2tee_mode(&hash_mode, PKCS11_FUNCTION_DIGEST);
+@@ -378,6 +402,9 @@ init_tee_operation(struct pkcs11_session *session,
+ 	struct active_processing *proc = session->processing;
+ 
+ 	switch (proc_params->id) {
++	case PKCS11_CKM_RSA_X_509:
++		rc = pkcs2tee_rsa_nopad_context(proc);
++		break;
+ 	case PKCS11_CKM_RSA_PKCS_PSS:
+ 	case PKCS11_CKM_SHA1_RSA_PKCS_PSS:
+ 	case PKCS11_CKM_SHA224_RSA_PKCS_PSS:
+@@ -443,10 +470,12 @@ enum pkcs11_rc step_asymm_operation(struct pkcs11_session *session,
+ 	void *in2_buf = NULL;
+ 	void *out_buf = NULL;
+ 	void *hash_buf = NULL;
++	void *temp_buf = NULL;
+ 	uint32_t in_size = 0;
+ 	uint32_t in2_size = 0;
+ 	uint32_t out_size = 0;
+ 	uint32_t hash_size = 0;
++	uint32_t temp_size = 0;
+ 	TEE_Attribute *tee_attrs = NULL;
+ 	size_t tee_attrs_count = 0;
+ 	bool output_data = false;
+@@ -680,6 +709,7 @@ enum pkcs11_rc step_asymm_operation(struct pkcs11_session *session,
+ 		}
+ 		break;
+ 	case PKCS11_CKM_RSA_PKCS:
++	case PKCS11_CKM_RSA_X_509:
+ 	case PKCS11_CKM_MD5_RSA_PKCS:
+ 	case PKCS11_CKM_SHA1_RSA_PKCS:
+ 	case PKCS11_CKM_SHA224_RSA_PKCS:
+@@ -763,6 +793,59 @@ enum pkcs11_rc step_asymm_operation(struct pkcs11_session *session,
+ 			break;
+ 		}
+ 		break;
++
++	case PKCS11_CKM_RSA_X_509:
++		switch (function) {
++		case PKCS11_FUNCTION_SIGN:
++			/*
++			 * GP TEE API only allows Decrypt, not Verify operation,
++			 * on TEE_ALG_RSA_NOPAD. Be a bit strict on the size and
++			 * content of the message and ensure the generated
++			 * signature as the size of the modulus (@sz here).
++			 *
++			 * It remains the responsibility of the client to have
++			 * a safe padding scheme for the provided message data.
++			 */
++			if (in_size != sz) {
++				EMSG("CKM_RSA_X_509: bad data size %"PRIu32" != %zu",
++				     in_size, sz);
++				rc = PKCS11_CKR_DATA_LEN_RANGE;
++				break;
++			}
++
++			if (out_size < sz) {
++				rc = PKCS11_CKR_BUFFER_TOO_SMALL;
++				out_size = sz;
++				output_data = true;
++				break;
++			}
++
++			temp_size = sz;
++			temp_buf = proc->extra_ctx;
++			res = TEE_AsymmetricDecrypt(proc->tee_op_handle,
++						    tee_attrs, tee_attrs_count,
++						    in_buf, in_size,
++						    temp_buf, &temp_size);
++			if (!res && temp_size != sz) {
++				EMSG("CMK_RSA_X509: signature size %"PRIu32" != %zu",
++				     temp_size, sz);
++				rc = PKCS11_CKR_DATA_INVALID;
++				break;
++			}
++			if (!res) {
++				TEE_MemMove(out_buf, temp_buf, sz);
++				TEE_MemFill(temp_buf, 0xa5, sz);
++			}
++			output_data = true;
++			rc = tee2pkcs_error(res);
++			out_size = sz;
++			break;
++		default:
++			TEE_Panic(function);
++			break;
++		}
++		break;
++
+ 	case PKCS11_CKM_ECDSA_SHA1:
+ 	case PKCS11_CKM_ECDSA_SHA224:
+ 	case PKCS11_CKM_ECDSA_SHA256:
+diff --git a/ta/pkcs11/src/processing_rsa.c b/ta/pkcs11/src/processing_rsa.c
+index 8524fabf8f..fb3c84b45d 100644
+--- a/ta/pkcs11/src/processing_rsa.c
++++ b/ta/pkcs11/src/processing_rsa.c
+@@ -618,3 +618,22 @@ size_t rsa_get_input_max_byte_size(TEE_OperationHandle op)
+ 
+ 	return info.maxKeySize / 8;
+ }
++
++enum pkcs11_rc pkcs2tee_rsa_nopad_context(struct active_processing *proc)
++{
++	size_t key_size = 0;
++
++	/*
++	 * RSA no-pad (CKM_RSA_X_509) verify needs a buffer of the size
++	 * of the key to safely run.
++	 */
++	key_size = rsa_get_input_max_byte_size(proc->tee_op_handle);
++	if (!key_size)
++		return PKCS11_CKR_GENERAL_ERROR;
++
++	proc->extra_ctx = TEE_Malloc(key_size, TEE_USER_MEM_HINT_NO_FILL_ZERO);
++	if (!proc->extra_ctx)
++		return PKCS11_CKR_DEVICE_MEMORY;
++
++	return PKCS11_CKR_OK;
++}
+diff --git a/ta/pkcs11/src/token_capabilities.c b/ta/pkcs11/src/token_capabilities.c
+index 195c7f60d1..4e7e52b106 100644
+--- a/ta/pkcs11/src/token_capabilities.c
++++ b/ta/pkcs11/src/token_capabilities.c
+@@ -129,6 +129,9 @@ static const struct pkcs11_mechachism_modes pkcs11_modes[] = {
+ 		  CKFM_AUTH_WITH_RECOVER, SINGLE_PART_ONLY),
+ 	MECHANISM(PKCS11_CKM_RSA_PKCS_OAEP, CKFM_CIPHER_WRAP,
+ 		  SINGLE_PART_ONLY),
++	MECHANISM(PKCS11_CKM_RSA_X_509, CKFM_CIPHER_WRAP |
++		  CKFM_AUTH_NO_RECOVER | CKFM_AUTH_WITH_RECOVER,
++		  SINGLE_PART_ONLY),
+ 	MECHANISM(PKCS11_CKM_RSA_PKCS_PSS, CKFM_AUTH_NO_RECOVER,
+ 		  SINGLE_PART_ONLY),
+ 	MECHANISM(PKCS11_CKM_MD5_RSA_PKCS, CKFM_AUTH_NO_RECOVER, ANY_PART),
+@@ -269,6 +272,7 @@ const struct pkcs11_mechachism_modes token_mechanism[] = {
+ 	TA_MECHANISM(PKCS11_CKM_RSA_PKCS_KEY_PAIR_GEN,
+ 		     PKCS11_CKFM_GENERATE_KEY_PAIR),
+ 	TA_MECHANISM(PKCS11_CKM_RSA_PKCS, CKFM_CIPHER | CKFM_AUTH_NO_RECOVER),
++	TA_MECHANISM(PKCS11_CKM_RSA_X_509, PKCS11_CKFM_SIGN),
+ 	TA_MECHANISM(PKCS11_CKM_RSA_PKCS_PSS, CKFM_AUTH_NO_RECOVER),
+ 	TA_MECHANISM(PKCS11_CKM_MD5_RSA_PKCS, CKFM_AUTH_NO_RECOVER),
+ 	TA_MECHANISM(PKCS11_CKM_SHA1_RSA_PKCS, CKFM_AUTH_NO_RECOVER),
+@@ -407,6 +411,7 @@ void pkcs11_mechanism_supported_key_sizes(uint32_t proc_id,
+ 		break;
+ 	case PKCS11_CKM_RSA_PKCS_KEY_PAIR_GEN:
+ 	case PKCS11_CKM_RSA_PKCS:
++	case PKCS11_CKM_RSA_X_509:
+ 	case PKCS11_CKM_MD5_RSA_PKCS:
+ 	case PKCS11_CKM_SHA1_RSA_PKCS:
+ 	case PKCS11_CKM_RSA_PKCS_OAEP:
+-- 
+2.25.1
+

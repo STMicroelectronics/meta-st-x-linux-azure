@@ -1,0 +1,21 @@
+From 8d887c6c2322bd35e1151a559f094f93a140faf6 Mon Sep 17 00:00:00 2001
+From: Alexandre Marechal <alexandre.marechal@st.com>
+Date: Wed, 7 Aug 2024 12:00:58 +0200
+Subject: [PATCH] Support of PKCS11_CKM_RSA_X_509 mechanism
+
+---
+ libckteec/src/serialize_ck.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/libckteec/src/serialize_ck.c b/libckteec/src/serialize_ck.c
+index d1411ec..70bbe20 100644
+--- a/libckteec/src/serialize_ck.c
++++ b/libckteec/src/serialize_ck.c
+@@ -683,6 +683,7 @@ CK_RV serialize_ck_mecha_params(struct serializer *obj,
+ 	case CKM_ECDSA_SHA512:
+ 	case CKM_RSA_PKCS_KEY_PAIR_GEN:
+ 	case CKM_RSA_PKCS:
++	case CKM_RSA_X_509:
+ 	case CKM_MD5_RSA_PKCS:
+ 	case CKM_SHA1_RSA_PKCS:
+ 	case CKM_SHA224_RSA_PKCS:
