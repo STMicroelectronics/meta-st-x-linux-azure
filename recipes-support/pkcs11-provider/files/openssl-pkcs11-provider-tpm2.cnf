@@ -1,0 +1,20 @@
+HOME = .
+
+# Use this in order to automatically load providers.
+openssl_conf = openssl_init
+
+[openssl_init]
+providers = provider_sect
+
+[provider_sect]
+default = default_sect
+pkcs11 = pkcs11_sect
+
+[default_sect]
+activate = 1
+
+[pkcs11_sect]
+module = /usr/lib/ossl-modules/pkcs11.so
+pkcs11-module-path = /usr/lib/pkcs11/libtpm2_pkcs11.so
+pkcs11-module-token-pin = file:/etc/pki/pin.txt
+activate = 1

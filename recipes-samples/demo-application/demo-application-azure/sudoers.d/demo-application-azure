@@ -1,0 +1,8 @@
+## 
+## weston priviledge specification:
+## - list iotedge installed modules
+## - restart iotedge system
+
+weston ALL = (root) NOPASSWD: /usr/bin/iotedge list ,\
+                              /usr/bin/iotedge system restart 
+							  

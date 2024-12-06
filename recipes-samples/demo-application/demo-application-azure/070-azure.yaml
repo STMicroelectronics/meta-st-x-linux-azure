@@ -1,0 +1,14 @@
+Application:
+    Name: Microsoft Azure
+    Description: Iot Edge
+    Icon: application/azure/pictures/connected-cloud.png
+    Board:
+        List: all
+    Type: python
+    Python:
+        Module: application.azure.azure
+    Action:
+        button_release_event: python_start
+        button_press_event: highlight_eventBox
+
+

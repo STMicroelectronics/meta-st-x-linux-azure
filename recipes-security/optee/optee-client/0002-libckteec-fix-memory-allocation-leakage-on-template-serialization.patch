@@ -1,0 +1,45 @@
+From dc3dc433f36df5745bf99be94d8df7abc53c1ed0 Mon Sep 17 00:00:00 2001
+From: hoyong2007 <hoyong2007@naver.com>
+Date: Fri, 13 Sep 2024 10:26:53 +0900
+Subject: [PATCH] libckteec: fix memory allocation leakage on template
+ serialization
+
+Fix memory allocation leakage with a call to release_serial_object()
+to release obj2 before serialize_indirect_attribute() returns.
+
+Link: https://github.com/OP-TEE/optee_client/issues/387
+Fixes: e88c264ba358 ("libckteec: helper function to serialize a attribute template")
+Signed-off-by: Hoyong Jin <hoyong2007@naver.com>
+Reviewed-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ libckteec/src/serialize_ck.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/libckteec/src/serialize_ck.c b/libckteec/src/serialize_ck.c
+index ffcffd63..c611e14c 100644
+--- a/libckteec/src/serialize_ck.c
++++ b/libckteec/src/serialize_ck.c
+@@ -95,17 +95,19 @@ static CK_RV serialize_indirect_attribute(struct serializer *obj,
+ 	 */
+ 	rv = serialize_32b(obj, attribute->type);
+ 	if (rv)
+-		return rv;
++		goto out;
+ 
+ 	rv = serialize_32b(obj, obj2.size);
+ 	if (rv)
+-		return rv;
++		goto out;
+ 
+ 	rv = serialize_buffer(obj, obj2.buffer, obj2.size);
+ 	if (rv)
+-		return rv;
++		goto out;
+ 
+ 	obj->item_count++;
++out:
++	release_serial_object(&obj2);
+ 
+ 	return rv;
+ }
+ 
