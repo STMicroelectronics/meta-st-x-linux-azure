@@ -41,7 +41,7 @@ List of software brought by OpenSTLinux, needed by X-LINUX-AZURE expansion packa
 | libtasn1 | libtasn1-6 | 4.19.0 |  [LGPL-2.1](https://opensource.org/license/lgpl-2-1) | Library for ASN.1 and DER manipulation
 | opensc | opensc | 0.25.1 |  [LGPL-2.1](https://opensource.org/license/lgpl-2-1) | Smart card library and applications
 | optee-client | optee-client | 4.0.0+git0+acb0885c11-r2 |  [BSD-2-Clause](https://opensource.org/licenses/BSD-2-Clause) | OPTEE Client<br><br>Customized by X-LINUX-AZURE.
-| optee-os-stm32mp | optee-os-stm32mp-ta-pkcs11 | 4.0.0-stm32mp-r1-r1 |  [BSD-2-Clause](https://opensource.org/licenses/BSD-2-Clause) | OPTEE TA development kit for stm32mp<br><br>Customized by X-LINUX-AZURE.
+| optee-os-stm32mp | optee-os-stm32mp-ta-pkcs11 | 4.0.0-stm32mp-r1-r2 |  [BSD-2-Clause](https://opensource.org/licenses/BSD-2-Clause) | OPTEE TA development kit for stm32mp<br><br>Customized by X-LINUX-AZURE.
 | p11-kit | p11-kit | 0.25.3 |  [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause) | Provides a way to load and enumerate PKCS#11 modules
 | pcsc-lite | libpcsclite1<br>pcsc-lite | 2.0.3 |  [BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause) | PC/SC Lite smart card framework and applications
 |
