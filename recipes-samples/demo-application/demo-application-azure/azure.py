@@ -6,8 +6,6 @@ from gi.repository import Gtk
 from gi.repository import Gdk
 from gi.repository import Pango
 import os
-import tomllib
-import yaml
 from time import time
 import subprocess
 
@@ -157,9 +155,8 @@ class ConfigPage(Gtk.VBox):
     def refresh(self):
         file = "/etc/aziot/config.toml"
         try:
-            f = open(file, 'rb')
-            data = tomllib.load(f)
-            config = f"File: {file}\n\n" + yaml.dump(data, allow_unicode=True, default_flow_style=False)
+            f = open(file, 'r')
+            config = f"File: {file}\n\n" + str(f.read())
             self.label_config.set_text(config)
         except:
             config = f"Error reading file: {file}\n\n"
@@ -226,8 +223,9 @@ class ModulePage(Gtk.VBox):
         self.refresh()
 
 class AzureIotEdge(Gtk.Dialog):
-    def __init__(self, parent):
+    def __init__(self, parent, log=0):
         Gtk.Dialog.__init__(self, "AzureIotEdge", parent, 0, title="Simple Notebook Example")
+        self.log = log
 
         self.maximize()
         try:
@@ -295,8 +293,8 @@ class AzureIotEdge(Gtk.Dialog):
             #print ("simple click")
             self.previous_click_time = self.click_time
 
-def create_subdialogwindow(parent):
-    _window = AzureIotEdge(parent)
+def create_subdialogwindow(parent, log=0):
+    _window = AzureIotEdge(parent, log=log)
     _window.show_all()
     response = _window.run()
     _window.destroy()

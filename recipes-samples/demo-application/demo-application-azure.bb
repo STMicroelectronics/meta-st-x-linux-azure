@@ -7,7 +7,7 @@ DEPENDS = "\
     demo-launcher \
     "
 
-PV = "6.0"
+PV = "6.0.2"
 
 SRC_URI = " \
     file://__init__.py \
